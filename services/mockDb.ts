@@ -1,4 +1,5 @@
-import { Cabin, CabinStatus, Issue, Log, Notification, Role, Stay, User } from "../types";
+
+import { Cabin, CabinStatus, CleaningChecklist, Issue, Log, Notification, Role, Stay, User } from "../types";
 import { CABIN_DEFINITIONS } from "../constants";
 import { supabase } from "./supabaseClient";
 
@@ -67,9 +68,20 @@ const mapNotification = (n: any): Notification => ({
     read: n.read
 });
 
+const mapChecklist = (c: any, userMap: Map<string, string>): CleaningChecklist => ({
+    id: c.id,
+    cabinId: c.cabin_id,
+    items: c.items,
+    filledBy: userMap.get(c.filled_by) || 'Unknown',
+    approvedBy: c.approved_by ? (userMap.get(c.approved_by) || 'Unknown') : undefined,
+    status: c.status,
+    createdAt: c.created_at,
+    approvedAt: c.approved_at
+});
+
 export const MockDB = {
   checkConnection: async () => {
-    const tables = ['users', 'cabins', 'issues', 'stays', 'logs', 'notifications'];
+    const tables = ['users', 'cabins', 'issues', 'stays', 'logs', 'notifications', 'cleaning_checklists'];
     
     try {
         // Check all tables parallel
@@ -138,11 +150,18 @@ export const MockDB = {
         .from('issues')
         .select('id, cabin_id')
         .neq('status', 'RESOLVED');
+    
+    // Get submitted checklists that are not approved
+    const { data: pendingCleanings } = await supabase
+        .from('cleaning_checklists')
+        .select('id, cabin_id')
+        .eq('status', 'SUBMITTED');
 
     return cabinsData.map((c: any) => {
         const def = CABIN_DEFINITIONS.find(d => d.name === c.name);
         const stay = activeStays?.find((s: any) => s.cabin_id === c.id);
         const issue = activeIssues?.find((i: any) => i.cabin_id === c.id);
+        const cleaning = pendingCleanings?.find((cl: any) => cl.cabin_id === c.id);
 
         return {
             id: c.id,
@@ -150,7 +169,8 @@ export const MockDB = {
             status: c.status as CabinStatus,
             icon: def?.icon || 'Home',
             currentStayId: stay?.id,
-            activeIssueId: issue?.id
+            activeIssueId: issue?.id,
+            pendingCleaningId: cleaning?.id
         };
     });
   },
@@ -269,5 +289,46 @@ export const MockDB = {
       };
       const { error } = await supabase.from('notifications').insert(payload);
       handleError(error, 'addNotification');
+  },
+
+  // --- CLEANING CHECKLIST METHODS ---
+  getChecklist: async (checklistId: string): Promise<CleaningChecklist | null> => {
+      const { data, error } = await supabase.from('cleaning_checklists').select('*').eq('id', checklistId).single();
+      if (handleError(error, 'getChecklist')) return null;
+      if (!data) return null;
+
+      const { data: users } = await supabase.from('users').select('id, username');
+      const userMap = new Map(users?.map((u: any) => [u.id, u.username]) || []);
+      
+      return mapChecklist(data, userMap);
+  },
+
+  submitChecklist: async (checklist: CleaningChecklist) => {
+    const { data: uData } = await supabase.from('users').select('id').eq('username', checklist.filledBy).single();
+    const userId = uData?.id;
+
+    const payload = {
+        id: checklist.id,
+        cabin_id: checklist.cabinId,
+        items: checklist.items,
+        filled_by: userId,
+        status: 'SUBMITTED',
+        created_at: checklist.createdAt
+    };
+    const { error } = await supabase.from('cleaning_checklists').insert(payload);
+    handleError(error, 'submitChecklist');
+  },
+
+  approveChecklist: async (checklistId: string, approverUsername: string) => {
+      const { data: uData } = await supabase.from('users').select('id').eq('username', approverUsername).single();
+      const userId = uData?.id;
+
+      const payload = {
+          status: 'APPROVED',
+          approved_by: userId,
+          approved_at: new Date().toISOString()
+      };
+      const { error } = await supabase.from('cleaning_checklists').update(payload).eq('id', checklistId);
+      handleError(error, 'approveChecklist');
   }
 };

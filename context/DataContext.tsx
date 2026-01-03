@@ -1,10 +1,11 @@
+
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Cabin, CabinStatus, Issue, IssueStatus, Log, Notification, Stay, User, Role } from '../types';
+import { Cabin, CabinStatus, CleaningChecklist, Issue, IssueStatus, Log, Notification, Stay, User, Role } from '../types';
 import { MockDB } from '../services/mockDb';
 import { v4 as uuidv4 } from 'uuid'; 
 import { addDays } from '../utils/dateUtils';
 
-const generateId = () => Math.random().toString(36).substring(2, 9);
+const generateId = () => uuidv4();
 
 interface DataContextType {
   cabins: Cabin[];
@@ -25,6 +26,11 @@ interface DataContextType {
   checkIn: (cabinId: string, guestCount: number, nights: number, operator: User) => Promise<void>;
   reportIssue: (cabinId: string, type: any, description: string, operator: User) => Promise<void>;
   resolveIssue: (issueId: string, operator: User) => Promise<void>;
+  
+  // Checklist Actions
+  getCleaningChecklist: (id: string) => Promise<CleaningChecklist | null>;
+  submitCleaningChecklist: (cabinId: string, items: Record<string, boolean>, operator: User) => Promise<void>;
+  approveCleaningChecklist: (checklistId: string, operator: User) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -214,10 +220,53 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await refreshData();
   };
 
+  // --- Checklist Implementation ---
+
+  const getCleaningChecklist = async (id: string) => {
+      return await MockDB.getChecklist(id);
+  };
+
+  const submitCleaningChecklist = async (cabinId: string, items: Record<string, boolean>, operator: User) => {
+      const cabin = cabins.find(c => c.id === cabinId);
+      if (!cabin) return;
+
+      const checklist: CleaningChecklist = {
+          id: generateId(),
+          cabinId: cabinId,
+          items: items,
+          filledBy: operator.username,
+          status: 'SUBMITTED',
+          createdAt: new Date().toISOString()
+      };
+
+      await MockDB.submitChecklist(checklist);
+      await logAction(operator, 'SUBMIT_CLEANING', `چک‌لیست نظافت برای ${cabin.name} ثبت شد`);
+      await refreshData();
+  };
+
+  const approveCleaningChecklist = async (checklistId: string, operator: User) => {
+      const checklist = await MockDB.getChecklist(checklistId);
+      if (!checklist) return;
+
+      const cabin = cabins.find(c => c.id === checklist.cabinId);
+      if (!cabin) return;
+
+      // 1. Mark checklist as Approved
+      await MockDB.approveChecklist(checklistId, operator.username);
+      
+      // 2. Change Cabin Status to EMPTY_CLEAN
+      const updatedCabin = { ...cabin, status: CabinStatus.EMPTY_CLEAN };
+      await MockDB.updateCabin(updatedCabin);
+
+      await logAction(operator, 'APPROVE_CLEANING', `نظافت ${cabin.name} تایید شد`);
+      await refreshData();
+  };
+
   return (
     <DataContext.Provider value={{
       cabins, users, logs, issues, stays, notifications, loading, dbError, refreshData,
-      addUser, updateUser, deleteUser, updateCabinStatus, checkIn, reportIssue, resolveIssue
+      addUser, updateUser, deleteUser, updateCabinStatus, checkIn, reportIssue, resolveIssue,
+      getCleaningChecklist, submitCleaningChecklist, approveCleaningChecklist
     }}>
       {children}
     </DataContext.Provider>

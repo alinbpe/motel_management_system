@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Database, Copy, Check } from 'lucide-react';
 
@@ -55,6 +56,17 @@ create table if not exists public.notifications (
   created_at timestamp with time zone default now()
 );
 
+create table if not exists public.cleaning_checklists (
+  id uuid primary key default gen_random_uuid(),
+  cabin_id uuid references public.cabins(id),
+  items jsonb not null,
+  filled_by uuid references public.users(id),
+  approved_by uuid references public.users(id),
+  status text check (status in ('SUBMITTED','APPROVED')),
+  created_at timestamp with time zone default now(),
+  approved_at timestamp with time zone
+);
+
 -- 2. فعال‌سازی RLS
 alter table public.users enable row level security;
 alter table public.cabins enable row level security;
@@ -62,6 +74,7 @@ alter table public.issues enable row level security;
 alter table public.stays enable row level security;
 alter table public.logs enable row level security;
 alter table public.notifications enable row level security;
+alter table public.cleaning_checklists enable row level security;
 
 -- 3. ایجاد سیاست‌های دسترسی (Public برای سادگی فعلی)
 create policy "Public access" on public.users for all using (true);
@@ -70,6 +83,7 @@ create policy "Public access" on public.issues for all using (true);
 create policy "Public access" on public.stays for all using (true);
 create policy "Public access" on public.logs for all using (true);
 create policy "Public access" on public.notifications for all using (true);
+create policy "Public access" on public.cleaning_checklists for all using (true);
 
 -- 4. داده‌های اولیه کلبه‌ها
 insert into public.cabins (name, status) values

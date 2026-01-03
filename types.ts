@@ -1,3 +1,4 @@
+
 export enum Role {
   ADMIN = 'ADMIN',
   RECEPTION = 'RECEPTION',
@@ -41,6 +42,7 @@ export interface Cabin {
   icon?: string; // Icon identifier
   currentStayId?: string; // Links to active stay
   activeIssueId?: string; // Links to active issue
+  pendingCleaningId?: string; // Links to a submitted but unapproved cleaning checklist
 }
 
 export interface Stay {
@@ -80,4 +82,15 @@ export interface Notification {
   type: 'info' | 'warning' | 'success' | 'error';
   timestamp: string;
   read: boolean;
+}
+
+export interface CleaningChecklist {
+    id: string;
+    cabinId: string;
+    items: Record<string, boolean>;
+    filledBy: string; // username
+    approvedBy?: string; // username
+    status: 'SUBMITTED' | 'APPROVED';
+    createdAt: string;
+    approvedAt?: string;
 }

@@ -3,6 +3,7 @@ import { useData } from '../context/DataContext';
 import { getTomorrow, isSameDay, formatDate } from '../utils/dateUtils';
 import { Users, LogOut, Home, AlertTriangle } from 'lucide-react';
 import { CabinStatus } from '../types';
+import { CabinIcon } from '../components/ui/CabinIcon';
 
 const Dashboard: React.FC = () => {
   const { cabins, stays, issues } = useData();
@@ -95,7 +96,7 @@ const Dashboard: React.FC = () => {
             <table className="w-full text-sm text-right">
               <thead className="bg-gray-50 text-gray-500">
                 <tr>
-                  <th className="p-3">نام کلبه</th>
+                  <th className="p-3">کلبه</th>
                   <th className="p-3">تعداد مهمان</th>
                   <th className="p-3">تاریخ ورود</th>
                   <th className="p-3">تاریخ خروج</th>
@@ -103,10 +104,14 @@ const Dashboard: React.FC = () => {
               </thead>
               <tbody className="divide-y">
                 {checkoutsTomorrow.map(stay => {
-                    const cabinName = cabins.find(c => c.id === stay.cabinId)?.name || 'نامشخص';
+                    const cabin = cabins.find(c => c.id === stay.cabinId);
+                    const cabinName = cabin?.name || 'نامشخص';
                     return (
                         <tr key={stay.id}>
-                            <td className="p-3 font-medium text-slate-800">{cabinName}</td>
+                            <td className="p-3 font-medium text-slate-800 flex items-center gap-2">
+                                <CabinIcon iconName={cabin?.icon} className="w-5 h-5 text-slate-400" />
+                                {cabinName}
+                            </td>
                             <td className="p-3">{stay.guestCount} نفر</td>
                             <td className="p-3">{formatDate(stay.checkInDate)}</td>
                             <td className="p-3 text-red-600 font-bold">{formatDate(stay.checkOutDate)}</td>

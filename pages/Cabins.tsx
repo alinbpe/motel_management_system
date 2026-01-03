@@ -1,54 +1,62 @@
+
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import { Cabin, CabinStatus, IssueType, Role } from '../types';
+import { Cabin, CabinStatus, CleaningChecklist, IssueType, Role } from '../types';
 import { STATUS_COLORS, STATUS_LABELS } from '../constants';
 import { Modal } from '../components/ui/Modal';
-import { 
-    AlertTriangle, CheckCircle, Home, Wrench, Trash2, 
-    Mountain, Bird, Flower, Cloud, Feather, TreePine, TreeDeciduous, Crown, Sun
-} from 'lucide-react';
-
-// Map icon strings to components
-const ICON_MAP: Record<string, any> = {
-  "Mountain": Mountain,
-  "Bird": Bird,
-  "Flower": Flower,
-  "Cloud": Cloud,
-  "Feather": Feather,
-  "TreePine": TreePine,
-  "TreeDeciduous": TreeDeciduous,
-  "Crown": Crown,
-  "Sun": Sun,
-  "Home": Home
-};
+import { CabinIcon } from '../components/ui/CabinIcon';
+import { AlertTriangle, CheckCircle, Wrench, LogOut, ClipboardCheck, Loader2 } from 'lucide-react';
+import { CleaningChecklistUI } from '../components/ui/CleaningChecklist';
 
 const Cabins: React.FC = () => {
-  const { cabins, updateCabinStatus, checkIn, reportIssue, resolveIssue } = useData();
+  const { 
+      cabins, updateCabinStatus, checkIn, reportIssue, resolveIssue,
+      getCleaningChecklist, submitCleaningChecklist, approveCleaningChecklist
+  } = useData();
   const { currentUser, hasRole } = useAuth();
+  
   const [selectedCabin, setSelectedCabin] = useState<Cabin | null>(null);
+  
+  // Checklist State
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [currentChecklist, setCurrentChecklist] = useState<CleaningChecklist | undefined>(undefined);
+  const [loadingChecklist, setLoadingChecklist] = useState(false);
 
   // Form States
   const [guests, setGuests] = useState(2);
   const [nights, setNights] = useState(1);
   const [issueDesc, setIssueDesc] = useState('');
-  const [activeTab, setActiveTab] = useState<'ACTIONS' | 'INFO'>('ACTIONS');
 
   if (!currentUser) return null;
 
-  const handleCabinClick = (cabin: Cabin) => {
+  const handleCabinClick = async (cabin: Cabin) => {
     setSelectedCabin(cabin);
-    setActiveTab('ACTIONS');
     setGuests(2);
     setNights(1);
     setIssueDesc('');
+    setShowChecklist(false);
+    setCurrentChecklist(undefined);
+
+    // If cabin has a pending cleaning, pre-fetch it
+    if (cabin.pendingCleaningId && (hasRole([Role.ADMIN, Role.RECEPTION]))) {
+        setLoadingChecklist(true);
+        const cl = await getCleaningChecklist(cabin.pendingCleaningId);
+        if (cl) setCurrentChecklist(cl);
+        setLoadingChecklist(false);
+    }
   };
 
   const handleClose = () => {
     setSelectedCabin(null);
+    setShowChecklist(false);
   };
 
-  const ActionButton = ({ onClick, color, icon: Icon, label, disabled = false }: any) => (
+  const handleOpenChecklist = () => {
+      setShowChecklist(true);
+  };
+
+  const ActionButton = ({ onClick, color, icon: Icon, label, disabled = false, badge = null }: any) => (
     <button
       onClick={onClick}
       disabled={disabled}
@@ -64,11 +72,32 @@ const Cabins: React.FC = () => {
         </div>
         <span className="font-medium text-slate-700">{label}</span>
       </div>
+      {badge && <div className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-bold">{badge}</div>}
     </button>
   );
 
   const renderActions = () => {
     if (!selectedCabin) return null;
+
+    if (showChecklist) {
+        return (
+            <CleaningChecklistUI 
+                cabinName={selectedCabin.name}
+                checklist={currentChecklist}
+                currentUser={currentUser}
+                onSubmit={async (items) => {
+                    await submitCleaningChecklist(selectedCabin.id, items, currentUser);
+                    handleClose();
+                }}
+                onApprove={async () => {
+                    if (currentChecklist) {
+                        await approveCleaningChecklist(currentChecklist.id, currentUser);
+                        handleClose();
+                    }
+                }}
+            />
+        );
+    }
 
     const isAdmin = hasRole([Role.ADMIN]);
     const isReception = hasRole([Role.RECEPTION]);
@@ -118,7 +147,7 @@ const Cabins: React.FC = () => {
         {(isAdmin || isReception) && status === CabinStatus.OCCUPIED && (
           <ActionButton
             color="orange"
-            icon={LogOutIcon}
+            icon={LogOut}
             label="تخلیه مسافر (ثبت خروج)"
             onClick={() => {
               if(window.confirm('آیا از تخلیه این کلبه اطمینان دارید؟ وضعیت به «خالی کثیف» تغییر می‌کند.')) {
@@ -129,18 +158,40 @@ const Cabins: React.FC = () => {
           />
         )}
 
-        {/* HOUSEKEEPING ACTIONS */}
-        {(isAdmin || isHousekeeping) && status === CabinStatus.EMPTY_DIRTY && (
+        {/* HOUSEKEEPING: FILL CHECKLIST */}
+        {(isAdmin || isHousekeeping) && status === CabinStatus.EMPTY_DIRTY && !selectedCabin.pendingCleaningId && (
            <ActionButton
              color="emerald"
-             icon={CheckCircle}
-             label="اعلام پایان نظافت"
-             onClick={() => {
-                updateCabinStatus(selectedCabin.id, CabinStatus.EMPTY_CLEAN, currentUser, 'نظافت انجام شد');
-                handleClose();
-             }}
+             icon={ClipboardCheck}
+             label="شروع نظافت (چک‌لیست)"
+             onClick={handleOpenChecklist}
            />
         )}
+
+        {/* HOUSEKEEPING: ALREADY SUBMITTED */}
+        {isHousekeeping && selectedCabin.pendingCleaningId && (
+            <div className="bg-orange-50 p-4 rounded-xl text-center border border-orange-100">
+                <p className="text-orange-700 font-bold text-sm">چک‌لیست نظافت ارسال شده است.</p>
+                <p className="text-orange-600 text-xs mt-1">منتظر تایید پذیرش باشید.</p>
+            </div>
+        )}
+
+        {/* RECEPTION: APPROVE CHECKLIST */}
+        {(isAdmin || isReception) && selectedCabin.pendingCleaningId && (
+             <ActionButton
+             color="purple"
+             icon={loadingChecklist ? Loader2 : ClipboardCheck}
+             label={loadingChecklist ? 'در حال بارگذاری...' : 'بررسی و تایید نظافت'}
+             onClick={() => {
+                 if (!loadingChecklist) handleOpenChecklist();
+             }}
+             badge="نیاز به تایید"
+           />
+        )}
+
+        {/* RECEPTION: Direct Clean (Fallback/Legacy) is REMOVED to force checklist usage, 
+            but kept for ADMIN as override below 
+        */}
 
         {/* TECHNICAL / ISSUE RESOLUTION */}
         {(isAdmin || isTech) && selectedCabin.activeIssueId && status === CabinStatus.ISSUE_TECH && (
@@ -157,7 +208,7 @@ const Cabins: React.FC = () => {
         )}
         
         {/* Issue Reporting (Available to most roles) */}
-        {!selectedCabin.activeIssueId && (
+        {!selectedCabin.activeIssueId && !showChecklist && (
             <div className="mt-6 border-t pt-4">
                 <h4 className="font-bold text-gray-700 mb-3 text-sm">گزارش خرابی / مشکل</h4>
                 <textarea 
@@ -192,7 +243,7 @@ const Cabins: React.FC = () => {
         )}
 
         {/* ADMIN OVERRIDE */}
-        {isAdmin && (
+        {isAdmin && !showChecklist && (
             <div className="mt-8 pt-4 border-t border-red-100">
                 <p className="text-xs text-red-400 mb-2 text-center">پنل اضطراری مدیر</p>
                 <div className="grid grid-cols-3 gap-2">
@@ -223,9 +274,8 @@ const Cabins: React.FC = () => {
         {cabins.map((cabin) => {
            const colorClass = STATUS_COLORS[cabin.status];
            const hasIssue = cabin.status === CabinStatus.ISSUE_TECH || cabin.status === CabinStatus.ISSUE_CLEAN;
+           const needsApproval = cabin.pendingCleaningId;
            
-           const IconComponent = (cabin.icon && ICON_MAP[cabin.icon]) ? ICON_MAP[cabin.icon] : Home;
-
            return (
             <div
               key={cabin.id}
@@ -234,11 +284,16 @@ const Cabins: React.FC = () => {
             >
               <div className="flex justify-between items-start mb-4">
                 <div className="bg-white/50 p-3 rounded-xl backdrop-blur-sm shadow-sm">
-                  <IconComponent className="w-8 h-8 opacity-80 text-slate-700" />
+                  <CabinIcon iconName={cabin.icon} className="w-8 h-8 opacity-80 text-slate-700" />
                 </div>
                 {hasIssue && (
                     <div className="animate-pulse bg-red-500 text-white p-1 rounded-full">
                         <AlertTriangle className="w-5 h-5" />
+                    </div>
+                )}
+                {needsApproval && (
+                     <div className="animate-pulse bg-blue-500 text-white p-1 px-2 rounded-full text-[10px] font-bold">
+                        تایید نظافت
                     </div>
                 )}
               </div>
@@ -260,22 +315,19 @@ const Cabins: React.FC = () => {
       <Modal
         isOpen={!!selectedCabin}
         onClose={handleClose}
-        title={selectedCabin ? `مدیریت کلبه ${selectedCabin.name}` : ''}
+        title={
+            selectedCabin ? (
+                <div className="flex items-center gap-2">
+                    <CabinIcon iconName={selectedCabin.icon} className="w-6 h-6 text-slate-500" />
+                    <span>{showChecklist ? 'چک‌لیست نظافت' : `مدیریت کلبه ${selectedCabin.name}`}</span>
+                </div>
+            ) : ''
+        }
       >
          {renderActions()}
       </Modal>
     </div>
   );
 };
-
-const LogOutIcon = (props: any) => (
-    <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" 
-    {...props}
-    >
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>
-    </svg>
-)
 
 export default Cabins;

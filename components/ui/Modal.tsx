@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -20,7 +20,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
       
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          <div className="text-lg font-semibold text-gray-900">{title}</div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full">
             <X className="w-5 h-5 text-gray-500" />
           </button>
